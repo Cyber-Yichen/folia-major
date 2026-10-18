@@ -520,7 +520,9 @@ export const recordPlayedTail = (
     /** What the deck played from. */
     src: string | null,
 ): void => {
-    const songKey = getPlaybackSongKey(song);
+    // The analysis key, as everywhere else in this file: the profile is filed under the representation
+    // playback registered (a transcode) when there is one, and the song's own key would miss it.
+    const songKey = getPlaybackAnalysisKey(song);
     const known = profiles.get(songKey);
     if (!known || !known.partial) return;
     // What the deck played was not the song (a clip): how it ended is not how the song ends, and it

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SongResult } from '@/types';
+import type { PlaybackRepresentation } from '@/types/playbackRecovery';
 
 // test/unit/automix/clipAnalysis.test.ts
 // What automix measures from a song's audio is kept per song, and read before anything is measured
@@ -58,6 +59,8 @@ const { clearTrackProfileRuntime, ensureTrackProfile, getTrackProfile, recordPla
 const { ensureStems, setWantedStems, stemWindowKey } = await import('@/services/automix/stems');
 const { refreshModelAvailability } = await import('@/services/analysis/modelAvailability');
 const { TRACK_PROFILE_VERSION } = await import('@/services/automix/trackProfile');
+const { clearPlaybackRepresentationsForTests, getPlaybackAnalysisKey, registerPlaybackRepresentation } = await import('@/services/playbackRecovery/representationRegistry');
+const { getPlaybackSongKey } = await import('@/utils/appPlaybackGuards');
 
 const songOf = (id: string) => ({
     id, name: `Song ${id}`, artists: [], album: { id: '', name: '' }, durationMs: 200_000,
@@ -246,6 +249,32 @@ describe('the automix profile', () => {
 
         recordPlayedTail(songOf('10'), heard(200), hop, 200, 'https://cdn.test/whole.mp3');
         expect(saveToCache).toHaveBeenCalledExactlyOnceWith(profileKey(songOf('10')), expect.objectContaining({ partial: false, duration: 200 }));
+    });
+
+    // The profile is filed under the analysis key, which names the representation playback registered
+    // (a transcode) when there is one; the tail that completes it must look it up by the same key.
+    it('completes the head-only profile of a song played as a registered transcode', async () => {
+        const hop = 0.5;
+        const heard = (seconds: number) => Array.from({ length: seconds / hop }, () => -20);
+        const song = { ...songOf('31'), playbackSourceRevision: 'r1' } as SongResult;
+        registerPlaybackRepresentation({
+            songKey: getPlaybackSongKey(song),
+            sourceRevision: 'r1',
+            representationId: 'mp3-320',
+            kind: 'transcoded',
+            url: 'blob:transcode',
+            mimeType: 'audio/mpeg',
+            timelineOffsetSec: 0,
+        } satisfies PlaybackRepresentation);
+        const analysisKey = `automix_profile_${getPlaybackAnalysisKey(song)}`;
+        expect(analysisKey).not.toBe(profileKey(song));
+        stored.set(analysisKey, { version: TRACK_PROFILE_VERSION, partial: true, duration: 40, gridless: true, bpm: null, loudness: -9 });
+        await analyse(song, null);
+
+        recordPlayedTail(song, heard(200), hop, 200, 'https://cdn.test/whole.mp3');
+        expect(saveToCache).toHaveBeenCalledExactlyOnceWith(analysisKey, expect.objectContaining({ partial: false, duration: 200 }));
+        expect(getTrackProfile(song)).toMatchObject({ partial: false, duration: 200 });
+        clearPlaybackRepresentationsForTests();
     });
 });
 
